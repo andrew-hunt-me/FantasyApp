@@ -127,6 +127,15 @@ def build_weekly_lineup_rows(
             player_data.get("injury_status")
             or ""
         )
+        sleeper_rank = player_data.get(
+            "search_rank"
+        )
+
+        lineup_value = calculate_lineup_value(
+            sleeper_rank=sleeper_rank,
+            injury_status=injury_status,
+            on_bye=on_bye,
+        )
 
         lineup_rows.append(
             {
@@ -148,6 +157,12 @@ def build_weekly_lineup_rows(
                 ),
                 "On Bye": on_bye,
                 "Injury Status": injury_status,
+                "Sleeper Rank": (
+                    sleeper_rank
+                    if sleeper_rank is not None
+                    else "N/A"
+                ),
+                "Lineup Value": lineup_value,
                 "Week Points": round(points, 2),
                 "Player ID": player_id,
             }
@@ -184,3 +199,229 @@ def split_starters_and_bench(
     ]
 
     return starters, bench
+
+def calculate_lineup_value(
+    sleeper_rank: int | float | None,
+    injury_status: str,
+    on_bye: bool,
+) -> float:
+    """Calculate a preliminary weekly lineup value."""
+
+    try:
+        numeric_rank = float(sleeper_rank)
+    except (TypeError, ValueError):
+        numeric_rank = 300.0
+
+    rank_score = 100.0 * (
+        300.0 - numeric_rank
+    ) / 299.0
+
+    rank_score = max(
+        min(rank_score, 100.0),
+        0.0,
+    )
+
+    normalized_injury = str(
+        injury_status or ""
+    ).upper()
+
+    if normalized_injury in {"IR", "OUT"}:
+        injury_penalty = 100.0
+    elif normalized_injury in {"DOUBTFUL", "D"}:
+        injury_penalty = 35.0
+    elif normalized_injury in {"QUESTIONABLE", "Q"}:
+        injury_penalty = 8.0
+    else:
+        injury_penalty = 0.0
+
+    bye_penalty = 100.0 if on_bye else 0.0
+
+    lineup_value = (
+        rank_score
+        - injury_penalty
+        - bye_penalty
+    )
+
+    return round(
+        max(lineup_value, 0.0),
+        1,
+    )
+
+def optimize_weekly_lineup(
+    lineup_rows: list[dict[str, Any]],
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """Recommend starters for the configured lineup."""
+
+    eligible_players = [
+        player.copy()
+        for player in lineup_rows
+        if not player.get("On Bye", False)
+        and str(
+            player.get("Injury Status", "")
+        ).upper() not in {"IR", "OUT"}
+    ]
+
+    eligible_players.sort(
+        key=lambda player: (
+            -float(player.get("Lineup Value", 0.0)),
+            player.get("Player Name", ""),
+        )
+    )
+
+    recommended_starters = []
+    selected_player_ids = set()
+
+    def select_players(
+        position: str,
+        quantity: int,
+    ) -> None:
+        candidates = [
+            player
+            for player in eligible_players
+            if player.get("Position") == position
+            and player.get("Player ID")
+            not in selected_player_ids
+        ]
+
+        for player in candidates[:quantity]:
+            recommended_starters.append(
+                player.copy()
+            )
+
+            selected_player_ids.add(
+                player.get("Player ID")
+            )
+
+    select_players("QB", 1)
+    select_players("RB", 2)
+    select_players("WR", 2)
+    select_players("TE", 1)
+
+    flex_candidates = [
+        player
+        for player in eligible_players
+        if player.get("Position")
+        in {"RB", "WR", "TE"}
+        and player.get("Player ID")
+        not in selected_player_ids
+    ]
+
+    for player in flex_candidates[:2]:
+        flex_player = player.copy()
+        flex_player["Recommended Slot"] = "FLEX"
+
+        recommended_starters.append(
+            flex_player
+        )
+
+        selected_player_ids.add(
+            player.get("Player ID")
+        )
+
+    select_players("K", 1)
+    select_players("DEF", 1)
+
+    for player in recommended_starters:
+        if "Recommended Slot" not in player:
+            player["Recommended Slot"] = (
+                player.get("Position", "")
+            )
+
+    recommended_bench = [
+        player.copy()
+        for player in lineup_rows
+        if player.get("Player ID")
+        not in selected_player_ids
+    ]
+
+    return recommended_starters, recommended_bench
+
+def build_lineup_change_rows(
+    current_starters: list[dict[str, Any]],
+    recommended_starters: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Compare the current lineup with the recommended lineup."""
+
+    current_starter_ids = {
+        str(player.get("Player ID"))
+        for player in current_starters
+    }
+
+    recommended_starter_ids = {
+        str(player.get("Player ID"))
+        for player in recommended_starters
+    }
+
+    players_to_start = [
+        player
+        for player in recommended_starters
+        if str(player.get("Player ID"))
+        not in current_starter_ids
+    ]
+
+    players_to_bench = [
+        player
+        for player in current_starters
+        if str(player.get("Player ID"))
+        not in recommended_starter_ids
+    ]
+
+    change_rows = []
+
+    maximum_changes = max(
+        len(players_to_start),
+        len(players_to_bench),
+    )
+
+    for index in range(maximum_changes):
+        start_player = (
+            players_to_start[index]
+            if index < len(players_to_start)
+            else {}
+        )
+
+        bench_player = (
+            players_to_bench[index]
+            if index < len(players_to_bench)
+            else {}
+        )
+
+        start_value = float(
+            start_player.get("Lineup Value", 0.0)
+        )
+
+        bench_value = float(
+            bench_player.get("Lineup Value", 0.0)
+        )
+
+        change_rows.append(
+            {
+                "Start": start_player.get(
+                    "Player Name",
+                    "",
+                ),
+                "Start Position": start_player.get(
+                    "Recommended Slot",
+                    start_player.get("Position", ""),
+                ),
+                "Start Value": start_value,
+                "Bench": bench_player.get(
+                    "Player Name",
+                    "",
+                ),
+                "Bench Position": bench_player.get(
+                    "Position",
+                    "",
+                ),
+                "Bench Value": bench_value,
+                "Estimated Improvement": round(
+                    start_value - bench_value,
+                    1,
+                ),
+            }
+        )
+
+    return change_rows

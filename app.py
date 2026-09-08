@@ -41,6 +41,7 @@ from ui_helpers import (
     render_available_player_filters,
     display_matchup_summary,
     display_weekly_lineup,
+    display_start_sit_advisor,
 )
 from sleeper_api import (
     get_draft_picks,
@@ -54,9 +55,11 @@ from sleeper_api import (
 )
 
 from lineup_logic import (
+    build_lineup_change_rows,
     build_weekly_lineup_rows,
     find_opponent_matchup,
     find_roster_matchup,
+    optimize_weekly_lineup,
     split_starters_and_bench,
 )
 
@@ -889,6 +892,22 @@ with weekly_lineup_tab:
             display_weekly_lineup(
                 starters=starters,
                 bench=bench,
+            )
+
+            recommended_starters, recommended_bench = (
+                optimize_weekly_lineup(
+                    lineup_rows=lineup_rows
+                )
+            )
+
+            lineup_changes = build_lineup_change_rows(
+                current_starters=starters,
+                recommended_starters=recommended_starters,
+            )
+
+            display_start_sit_advisor(
+                recommended_starters=recommended_starters,
+                lineup_changes=lineup_changes,
             )
 
 with recommendations_tab:

@@ -811,3 +811,69 @@ def display_matchup_summary(
         "Matchup ID",
         matchup_id,
     )
+
+def display_start_sit_advisor(
+    recommended_starters: list[dict[str, Any]],
+    lineup_changes: list[dict[str, Any]],
+) -> None:
+    """Display the recommended lineup and suggested changes."""
+
+    st.divider()
+    st.subheader("Start/Sit Advisor")
+
+    st.caption(
+        "This preliminary lineup recommendation uses "
+        "Sleeper rank, injury status, and bye weeks. "
+        "It does not yet include projections, matchups, "
+        "or weather."
+    )
+
+    if not recommended_starters:
+        st.warning(
+            "The app could not build a complete eligible lineup."
+        )
+        return
+
+    recommended_columns = [
+        "Recommended Slot",
+        "Player Name",
+        "Position",
+        "NFL Team",
+        "Bye Week",
+        "Injury Status",
+        "Sleeper Rank",
+        "Lineup Value",
+    ]
+
+    recommended_rows = [
+        {
+            column: player.get(column, "")
+            for column in recommended_columns
+        }
+        for player in recommended_starters
+    ]
+
+    st.dataframe(
+        recommended_rows,
+        use_container_width=True,
+        hide_index=True,
+        height=min(
+            max(len(recommended_rows) * 36 + 40, 300),
+            700,
+        ),
+    )
+
+    st.subheader("Suggested Changes")
+
+    if not lineup_changes:
+        st.success(
+            "Your current starters match the app's "
+            "recommended lineup."
+        )
+        return
+
+    st.dataframe(
+        lineup_changes,
+        use_container_width=True,
+        hide_index=True,
+    )
