@@ -687,3 +687,127 @@ def filter_available_players(
         ]
 
     return filtered_players
+
+def display_weekly_lineup(
+    starters: list[dict[str, Any]],
+    bench: list[dict[str, Any]],
+) -> None:
+    """Display a weekly starting lineup and bench."""
+
+    st.subheader("Starting Lineup")
+
+    if not starters:
+        st.info(
+            "No starters were returned for this week."
+        )
+    else:
+        st.dataframe(
+            starters,
+            use_container_width=True,
+            hide_index=True,
+            height=min(
+                max(len(starters) * 36 + 40, 250),
+                700,
+            ),
+        )
+
+    bye_starters = [
+        player
+        for player in starters
+        if player.get("On Bye", False)
+    ]
+
+    injured_starters = [
+        player
+        for player in starters
+        if str(
+            player.get("Injury Status", "")
+        ).upper() in {
+            "OUT",
+            "IR",
+            "DOUBTFUL",
+            "D",
+        }
+    ]
+
+    if bye_starters:
+        player_names = ", ".join(
+            player["Player Name"]
+            for player in bye_starters
+        )
+
+        st.error(
+            f"Starter on bye: {player_names}"
+        )
+
+    if injured_starters:
+        player_names = ", ".join(
+            player["Player Name"]
+            for player in injured_starters
+        )
+
+        st.warning(
+            f"Unavailable or doubtful starter: "
+            f"{player_names}"
+        )
+
+    st.divider()
+    st.subheader("Bench")
+
+    if not bench:
+        st.info(
+            "No bench players were returned for this week."
+        )
+    else:
+        st.dataframe(
+            bench,
+            use_container_width=True,
+            hide_index=True,
+            height=min(
+                max(len(bench) * 36 + 40, 250),
+                700,
+            ),
+        )
+
+def display_matchup_summary(
+    user_matchup: dict | None,
+    opponent_matchup: dict | None,
+) -> None:
+    """Display the user's current fantasy matchup score."""
+
+    if not user_matchup:
+        st.info(
+            "No matchup information is available "
+            "for the selected week."
+        )
+        return
+
+    user_points = user_matchup.get("points", 0)
+
+    opponent_points = (
+        opponent_matchup.get("points", 0)
+        if opponent_matchup
+        else 0
+    )
+
+    matchup_id = user_matchup.get(
+        "matchup_id",
+        "N/A",
+    )
+
+    column1, column2, column3 = st.columns(3)
+
+    column1.metric(
+        "Your Points",
+        round(float(user_points or 0), 2),
+    )
+
+    column2.metric(
+        "Opponent Points",
+        round(float(opponent_points or 0), 2),
+    )
+
+    column3.metric(
+        "Matchup ID",
+        matchup_id,
+    )

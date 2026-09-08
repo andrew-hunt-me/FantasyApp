@@ -110,3 +110,25 @@ def get_trending_players(
     )
 
     return _request_json(url)
+
+@st.cache_data(ttl=60)
+def get_league_matchups(
+    league_id: str,
+    week: int,
+) -> list[dict] | None:
+    """Retrieve every matchup entry for a league week."""
+
+    try:
+        week_number = int(week)
+    except (TypeError, ValueError):
+        return None
+
+    if week_number < 1 or week_number > 18:
+        return None
+
+    url = (
+        f"{SLEEPER_API}/league/"
+        f"{league_id}/matchups/{week_number}"
+    )
+
+    return _request_json(url)

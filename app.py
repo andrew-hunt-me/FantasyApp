@@ -26,15 +26,6 @@ from recommendations import (
     build_draft_recommendations,
     filter_recommendations,
 )
-from sleeper_api import (
-    get_draft_picks,
-    get_league_drafts,
-    get_league_rosters,
-    get_nfl_players,
-    get_sleeper_user,
-    get_user_leagues,
-    get_trending_players,
-)
 from ui_helpers import (
     display_bye_week_summary,
     display_next_pick_summary,
@@ -48,6 +39,25 @@ from ui_helpers import (
     display_draft_summary,
     filter_available_players,
     render_available_player_filters,
+    display_matchup_summary,
+    display_weekly_lineup,
+)
+from sleeper_api import (
+    get_draft_picks,
+    get_league_drafts,
+    get_league_rosters,
+    get_nfl_players,
+    get_sleeper_user,
+    get_user_leagues,
+    get_trending_players,
+    get_league_matchups,
+)
+
+from lineup_logic import (
+    build_weekly_lineup_rows,
+    find_opponent_matchup,
+    find_roster_matchup,
+    split_starters_and_bench,
 )
 
 from waiver_logic import build_waiver_watch_rows
@@ -421,7 +431,7 @@ if selected_draft:
             "Your draft is complete"
         )
 
-draft_tab, lineup_tab, roster_tab, details_tab, live_draft_tab, available_players_tab, my_team_tab, recommendations_tab, waiver_watch_tab = st.tabs(
+draft_tab, lineup_tab, roster_tab, details_tab, live_draft_tab, available_players_tab, my_team_tab, weekly_lineup_tab, recommendations_tab, waiver_watch_tab  = st.tabs(
     [
         "Draft Picks",
         "Starting Lineup",
@@ -430,8 +440,10 @@ draft_tab, lineup_tab, roster_tab, details_tab, live_draft_tab, available_player
         "Live Draft Board",
         "Available Players",
         "My Team",
+        "Weekly Lineup",
         "Recommendations",
         "Waiver Watch",
+
     ]
 )
 
@@ -806,6 +818,78 @@ with my_team_tab:
                 "Your draft is complete"
             )
 
+with weekly_lineup_tab:
+    st.subheader("Weekly Lineup")
+
+    selected_week = st.number_input(
+        "NFL Week",
+        min_value=1,
+        max_value=18,
+        value=1,
+        step=1,
+        key="weekly_lineup_week",
+    )
+
+    if shared_user_roster_id is None:
+        st.warning(
+            "Your roster could not be identified."
+        )
+
+    elif not shared_nfl_players:
+        st.error(
+            "The NFL player directory could not be loaded."
+        )
+
+    else:
+        with st.spinner(
+            f"Loading Week {selected_week} matchup..."
+        ):
+            weekly_matchups = get_league_matchups(
+                league_id=selected_league_id,
+                week=int(selected_week),
+            )
+
+        if weekly_matchups is None:
+            st.error(
+                "Sleeper matchup data could not be loaded."
+            )
+
+        elif not weekly_matchups:
+            st.info(
+                f"No matchup information is available "
+                f"for Week {selected_week} yet."
+            )
+
+        else:
+            user_matchup = find_roster_matchup(
+                matchups=weekly_matchups,
+                roster_id=shared_user_roster_id,
+            )
+
+            opponent_matchup = find_opponent_matchup(
+                matchups=weekly_matchups,
+                user_matchup=user_matchup,
+            )
+
+            display_matchup_summary(
+                user_matchup=user_matchup,
+                opponent_matchup=opponent_matchup,
+            )
+
+            lineup_rows = build_weekly_lineup_rows(
+                matchup=user_matchup,
+                nfl_players=shared_nfl_players,
+                selected_week=int(selected_week),
+            )
+
+            starters, bench = split_starters_and_bench(
+                lineup_rows
+            )
+
+            display_weekly_lineup(
+                starters=starters,
+                bench=bench,
+            )
 
 with recommendations_tab:
     st.subheader("Draft Recommendations")
