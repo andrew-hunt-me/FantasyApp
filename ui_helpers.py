@@ -842,6 +842,7 @@ def display_start_sit_advisor(
         "Bye Week",
         "Injury Status",
         "Sleeper Rank",
+        "Projected Points",
         "Lineup Value",
     ]
 

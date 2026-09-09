@@ -52,6 +52,7 @@ from sleeper_api import (
     get_user_leagues,
     get_trending_players,
     get_league_matchups,
+    get_weekly_projections,
 )
 
 from lineup_logic import (
@@ -61,6 +62,7 @@ from lineup_logic import (
     find_roster_matchup,
     optimize_weekly_lineup,
     split_starters_and_bench,
+    build_projection_lookup,
 )
 
 from waiver_logic import build_waiver_watch_rows
@@ -879,10 +881,24 @@ with weekly_lineup_tab:
                 opponent_matchup=opponent_matchup,
             )
 
+            weekly_projections = get_weekly_projections(
+                season=selected_season,
+                week=int(selected_week),
+            )
+
+            projection_lookup = build_projection_lookup(
+                projection_rows=weekly_projections,
+                scoring_settings=selected_league.get(
+                    "scoring_settings",
+                    {},
+                ),
+            )
+
             lineup_rows = build_weekly_lineup_rows(
                 matchup=user_matchup,
                 nfl_players=shared_nfl_players,
                 selected_week=int(selected_week),
+                projection_lookup=projection_lookup,
             )
 
             starters, bench = split_starters_and_bench(
@@ -909,6 +925,8 @@ with weekly_lineup_tab:
                 recommended_starters=recommended_starters,
                 lineup_changes=lineup_changes,
             )
+
+
 
 with recommendations_tab:
     st.subheader("Draft Recommendations")

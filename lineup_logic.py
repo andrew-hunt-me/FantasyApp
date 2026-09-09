@@ -55,8 +55,10 @@ def build_weekly_lineup_rows(
     matchup: dict | None,
     nfl_players: dict[str, dict] | None,
     selected_week: int,
+    projection_lookup: dict[str, float] | None = None,
 ) -> list[dict[str, Any]]:
     """Build starter and bench rows from a Sleeper matchup."""
+    projection_lookup = projection_lookup or {}
 
     if not matchup or not nfl_players:
         return []
@@ -131,11 +133,21 @@ def build_weekly_lineup_rows(
             "search_rank"
         )
 
+        projected_points = float(
+            projection_lookup.get(
+                player_id,
+                0.0,
+            )
+        )
+
         lineup_value = calculate_lineup_value(
             sleeper_rank=sleeper_rank,
             injury_status=injury_status,
             on_bye=on_bye,
+            projected_points=projected_points,
         )
+
+
 
         lineup_rows.append(
             {
@@ -147,6 +159,10 @@ def build_weekly_lineup_rows(
                 "Player Name": (
                     player_name
                     or player_id
+                ),
+                "Projected Points": round(
+                    projected_points,
+                    2,
                 ),
                 "Position": position,
                 "NFL Team": team,
@@ -204,6 +220,7 @@ def calculate_lineup_value(
     sleeper_rank: int | float | None,
     injury_status: str,
     on_bye: bool,
+    projected_points: float = 0.0,
 ) -> float:
     """Calculate a preliminary weekly lineup value."""
 
@@ -236,10 +253,19 @@ def calculate_lineup_value(
 
     bye_penalty = 100.0 if on_bye else 0.0
 
+    try:
+        projection_value = max(
+            float(projected_points),
+            0.0,
+        )
+    except (TypeError, ValueError):
+        projection_value = 0.0
+
     lineup_value = (
-        rank_score
-        - injury_penalty
-        - bye_penalty
+            0.35 * rank_score
+            + 3.0 * projection_value
+            - injury_penalty
+            - bye_penalty
     )
 
     return round(
@@ -425,3 +451,103 @@ def build_lineup_change_rows(
         )
 
     return change_rows
+
+def calculate_projected_fantasy_points(
+    projected_stats: dict | None,
+    scoring_settings: dict | None,
+) -> float:
+    """Calculate projected points using league scoring."""
+
+    stats = projected_stats or {}
+    scoring = scoring_settings or {}
+
+    stat_to_scoring_key = {
+        "pass_yd": "pass_yd",
+        "pass_td": "pass_td",
+        "pass_int": "pass_int",
+        "pass_2pt": "pass_2pt",
+        "rush_yd": "rush_yd",
+        "rush_td": "rush_td",
+        "rush_2pt": "rush_2pt",
+        "rec": "rec",
+        "rec_yd": "rec_yd",
+        "rec_td": "rec_td",
+        "rec_2pt": "rec_2pt",
+        "fum_lost": "fum_lost",
+        "xpm": "xpm",
+        "xpmiss": "xpmiss",
+        "fgm_0_19": "fgm_0_19",
+        "fgm_20_29": "fgm_20_29",
+        "fgm_30_39": "fgm_30_39",
+        "fgm_40_49": "fgm_40_49",
+        "fgm_50p": "fgm_50p",
+        "fgmiss": "fgmiss",
+        "sack": "sack",
+        "int": "int",
+        "fum_rec": "fum_rec",
+        "ff": "ff",
+        "safe": "safe",
+        "blk_kick": "blk_kick",
+        "def_td": "def_td",
+        "def_st_td": "def_st_td",
+    }
+
+    projected_points = 0.0
+
+    for stat_key, scoring_key in stat_to_scoring_key.items():
+        try:
+            stat_value = float(
+                stats.get(stat_key, 0) or 0
+            )
+
+            point_value = float(
+                scoring.get(scoring_key, 0) or 0
+            )
+        except (TypeError, ValueError):
+            continue
+
+        projected_points += stat_value * point_value
+
+    return round(projected_points, 2)
+
+def build_projection_lookup(
+    projection_rows: list[dict] | None,
+    scoring_settings: dict | None,
+) -> dict[str, float]:
+    """Map Sleeper player IDs to projected fantasy points."""
+
+    projection_lookup = {}
+
+    for projection in projection_rows or []:
+        if not isinstance(projection, dict):
+            continue
+
+        player_id = str(
+            projection.get("player_id")
+            or projection.get("player", {}).get(
+                "player_id",
+                "",
+            )
+        )
+
+        if not player_id:
+            continue
+
+        projected_stats = (
+            projection.get("stats")
+            or projection.get("projection")
+            or {}
+        )
+
+        projected_points = (
+            calculate_projected_fantasy_points(
+                projected_stats=projected_stats,
+                scoring_settings=scoring_settings,
+            )
+        )
+
+        projection_lookup[player_id] = (
+            projected_points
+        )
+
+    return projection_lookup
