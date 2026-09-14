@@ -56,9 +56,11 @@ def build_weekly_lineup_rows(
     nfl_players: dict[str, dict] | None,
     selected_week: int,
     projection_lookup: dict[str, float] | None = None,
+    performance_lookup: dict[str, dict] | None = None,
 ) -> list[dict[str, Any]]:
     """Build starter and bench rows from a Sleeper matchup."""
     projection_lookup = projection_lookup or {}
+    performance_lookup = performance_lookup or {}
 
     if not matchup or not nfl_players:
         return []
@@ -139,12 +141,44 @@ def build_weekly_lineup_rows(
                 0.0,
             )
         )
+        recent_performance = performance_lookup.get(
+            player_id,
+            {},
+        )
+
+        last_game_points = float(
+            recent_performance.get(
+                "Last Game Points",
+                0.0,
+            )
+        )
+
+        three_week_average = float(
+            recent_performance.get(
+                "Three Week Average",
+                0.0,
+            )
+        )
+
+        recent_trend = recent_performance.get(
+            "Recent Trend",
+            "No trend",
+        )
+
+        games_included = int(
+            recent_performance.get(
+                "Games Included",
+                0,
+            )
+        )
 
         lineup_value = calculate_lineup_value(
             sleeper_rank=sleeper_rank,
             injury_status=injury_status,
             on_bye=on_bye,
             projected_points=projected_points,
+            three_week_average=three_week_average,
+            games_included=games_included,
         )
 
 
@@ -181,6 +215,17 @@ def build_weekly_lineup_rows(
                 "Lineup Value": lineup_value,
                 "Week Points": round(points, 2),
                 "Player ID": player_id,
+                "Last Game Points": round(
+                    last_game_points,
+                    2,
+                ),
+                "Three Week Average": round(
+                    three_week_average,
+                    2,
+                ),
+                "Recent Trend": recent_trend,
+                "Games Included": games_included,
+
             }
         )
 
@@ -221,6 +266,8 @@ def calculate_lineup_value(
     injury_status: str,
     on_bye: bool,
     projected_points: float = 0.0,
+    three_week_average: float = 0.0,
+    games_included: int = 0,
 ) -> float:
     """Calculate a preliminary weekly lineup value."""
 
@@ -261,9 +308,35 @@ def calculate_lineup_value(
     except (TypeError, ValueError):
         projection_value = 0.0
 
+    try:
+        recent_average = max(
+            float(three_week_average),
+            0.0,
+        )
+    except (TypeError, ValueError):
+        recent_average = 0.0
+
+    try:
+        completed_games = max(
+            int(games_included),
+            0,
+        )
+    except (TypeError, ValueError):
+        completed_games = 0
+
+    if completed_games == 0:
+        recent_weight = 0.0
+    elif completed_games == 1:
+        recent_weight = 0.5
+    elif completed_games == 2:
+        recent_weight = 1.0
+    else:
+        recent_weight = 1.5
+
     lineup_value = (
-            0.35 * rank_score
+            0.30 * rank_score
             + 3.0 * projection_value
+            + recent_weight * recent_average
             - injury_penalty
             - bye_penalty
     )
@@ -551,3 +624,121 @@ def build_projection_lookup(
         )
 
     return projection_lookup
+
+def build_weekly_points_lookup(
+    stats_rows: list[dict] | None,
+    scoring_settings: dict | None,
+) -> dict[str, float]:
+    """Map player IDs to actual fantasy points for one week."""
+
+    points_lookup = {}
+
+    for stat_record in stats_rows or []:
+        if not isinstance(stat_record, dict):
+            continue
+
+        player_id = str(
+            stat_record.get("player_id")
+            or (
+                stat_record.get("player") or {}
+            ).get("player_id")
+            or ""
+        )
+
+        if not player_id:
+            continue
+
+        actual_stats = (
+            stat_record.get("stats")
+            or stat_record.get("stat")
+            or {}
+        )
+
+        actual_points = calculate_projected_fantasy_points(
+            projected_stats=actual_stats,
+            scoring_settings=scoring_settings,
+        )
+
+        points_lookup[player_id] = actual_points
+
+    return points_lookup
+
+def build_recent_performance_lookup(
+    weekly_points_lookups: list[
+        tuple[int, dict[str, float]]
+    ],
+) -> dict[str, dict[str, float | str]]:
+    """Calculate recent fantasy production and direction."""
+
+    player_weekly_points = {}
+
+    for week, points_lookup in weekly_points_lookups:
+        for player_id, points in points_lookup.items():
+            player_id = str(player_id)
+
+            if player_id not in player_weekly_points:
+                player_weekly_points[player_id] = []
+
+            player_weekly_points[player_id].append(
+                {
+                    "week": int(week),
+                    "points": float(points),
+                }
+            )
+
+    performance_lookup = {}
+
+    for player_id, weekly_results in player_weekly_points.items():
+        weekly_results.sort(
+            key=lambda result: result["week"]
+        )
+
+        point_values = [
+            result["points"]
+            for result in weekly_results
+        ]
+
+        last_game_points = (
+            point_values[-1]
+            if point_values
+            else 0.0
+        )
+
+        last_three = point_values[-3:]
+
+        three_week_average = (
+            sum(last_three) / len(last_three)
+            if last_three
+            else 0.0
+        )
+
+        trend = "No trend"
+
+        if len(last_three) >= 2:
+            first_value = last_three[0]
+            last_value = last_three[-1]
+            difference = last_value - first_value
+
+            if difference >= 5:
+                trend = "Improving"
+            elif difference <= -5:
+                trend = "Declining"
+            else:
+                trend = "Stable"
+
+        performance_lookup[player_id] = {
+            "Last Game Points": round(
+                last_game_points,
+                2,
+            ),
+            "Three Week Average": round(
+                three_week_average,
+                2,
+            ),
+            "Recent Trend": trend,
+            "Games Included": len(
+                point_values
+            ),
+        }
+
+    return performance_lookup

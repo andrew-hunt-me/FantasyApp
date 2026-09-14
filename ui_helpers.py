@@ -844,6 +844,10 @@ def display_start_sit_advisor(
         "Sleeper Rank",
         "Projected Points",
         "Lineup Value",
+        "Projected Points",
+        "Last Game Points",
+        "Three Week Average",
+        "Recent Trend",
     ]
 
     recommended_rows = [

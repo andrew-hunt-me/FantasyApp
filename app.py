@@ -53,6 +53,7 @@ from sleeper_api import (
     get_trending_players,
     get_league_matchups,
     get_weekly_projections,
+    get_weekly_stats,
 )
 
 from lineup_logic import (
@@ -63,6 +64,8 @@ from lineup_logic import (
     optimize_weekly_lineup,
     split_starters_and_bench,
     build_projection_lookup,
+    build_weekly_points_lookup,
+    build_recent_performance_lookup,
 )
 
 from waiver_logic import build_waiver_watch_rows
@@ -894,11 +897,47 @@ with weekly_lineup_tab:
                 ),
             )
 
+            weekly_points_lookups = []
+
+            first_recent_week = max(
+                1,
+                int(selected_week) - 3,
+            )
+
+            for previous_week in range(
+                    first_recent_week,
+                    int(selected_week),
+            ):
+                weekly_stats = get_weekly_stats(
+                    season=selected_season,
+                    week=previous_week,
+                )
+
+                weekly_points_lookup = build_weekly_points_lookup(
+                    stats_rows=weekly_stats,
+                    scoring_settings=selected_league.get(
+                        "scoring_settings",
+                        {},
+                    ),
+                )
+
+                weekly_points_lookups.append(
+                    (
+                        previous_week,
+                        weekly_points_lookup,
+                    )
+                )
+
+            performance_lookup = build_recent_performance_lookup(
+                weekly_points_lookups
+            )
+
             lineup_rows = build_weekly_lineup_rows(
                 matchup=user_matchup,
                 nfl_players=shared_nfl_players,
                 selected_week=int(selected_week),
                 projection_lookup=projection_lookup,
+                performance_lookup=performance_lookup,
             )
 
             starters, bench = split_starters_and_bench(
@@ -925,6 +964,11 @@ with weekly_lineup_tab:
                 recommended_starters=recommended_starters,
                 lineup_changes=lineup_changes,
             )
+            st.write(
+                f"Loaded {len(projection_lookup)} projections"
+            )
+            if lineup_rows:
+                st.dataframe(lineup_rows[:5])
 
 
 

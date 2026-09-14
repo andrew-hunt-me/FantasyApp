@@ -158,3 +158,28 @@ def get_weekly_projections(
         url,
         timeout=30,
     )
+@st.cache_data(ttl=3600)
+def get_weekly_stats(
+    season: str,
+    week: int,
+) -> list[dict] | None:
+    """Retrieve Sleeper NFL statistics for one completed week."""
+
+    try:
+        week_number = int(week)
+    except (TypeError, ValueError):
+        return None
+
+    if week_number < 1 or week_number > 18:
+        return None
+
+    url = (
+        f"https://api.sleeper.com/stats/nfl/"
+        f"{season}/{week_number}"
+        f"?season_type=regular"
+    )
+
+    return _request_json(
+        url,
+        timeout=30,
+    )
