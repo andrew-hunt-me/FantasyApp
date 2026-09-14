@@ -1,5 +1,5 @@
 import streamlit as st
-
+from datetime import datetime
 from config import (
     DEFAULT_SLEEPER_USERNAME,
     DRAFT_POSITION,
@@ -54,6 +54,7 @@ from sleeper_api import (
     get_league_matchups,
     get_weekly_projections,
     get_weekly_stats,
+    get_game_weather,
 )
 
 from lineup_logic import (
@@ -68,6 +69,17 @@ from lineup_logic import (
     build_recent_performance_lookup,
 )
 
+from stadium_data import (
+    NFL_STADIUMS,
+    get_stadium,
+    is_weather_protected,
+)
+
+from weather_logic import (
+    classify_weather_risk,
+    find_nearest_forecast_hour,
+    get_team_weather_location,
+)
 from waiver_logic import build_waiver_watch_rows
 # ---------------------------------------------------------
 # PAGE SETUP
@@ -439,7 +451,7 @@ if selected_draft:
             "Your draft is complete"
         )
 
-draft_tab, lineup_tab, roster_tab, details_tab, live_draft_tab, available_players_tab, my_team_tab, weekly_lineup_tab, recommendations_tab, waiver_watch_tab  = st.tabs(
+draft_tab, lineup_tab, roster_tab, details_tab, live_draft_tab, available_players_tab, my_team_tab, weekly_lineup_tab, weather_tab, recommendations_tab, waiver_watch_tab  = st.tabs(
     [
         "Draft Picks",
         "Starting Lineup",
@@ -449,6 +461,7 @@ draft_tab, lineup_tab, roster_tab, details_tab, live_draft_tab, available_player
         "Available Players",
         "My Team",
         "Weekly Lineup",
+        "Weather",
         "Recommendations",
         "Waiver Watch",
 
@@ -964,11 +977,6 @@ with weekly_lineup_tab:
                 recommended_starters=recommended_starters,
                 lineup_changes=lineup_changes,
             )
-            st.write(
-                f"Loaded {len(projection_lookup)} projections"
-            )
-            if lineup_rows:
-                st.dataframe(lineup_rows[:5])
 
 
 
@@ -1268,3 +1276,257 @@ with waiver_watch_tab:
                 hide_index=True,
                 height=900,
             )
+
+with weather_tab:
+    st.subheader("NFL Weather Explorer")
+
+    st.caption(
+        "Select a home team and enter kickoff in the stadium's "
+        "local time. Hourly forecasts are normally available "
+        "only for games within the next 16 days."
+    )
+
+    selected_team = st.selectbox(
+        "Home Team",
+        options=sorted(NFL_STADIUMS.keys()),
+        key="weather_team",
+    )
+
+    stadium = get_stadium(selected_team)
+
+    if stadium is None:
+        st.error(
+            "No stadium information is available for the "
+            "selected team."
+        )
+    else:
+        stadium_name = stadium.get(
+            "stadium",
+            "Unknown Stadium",
+        )
+
+        stadium_city = stadium.get(
+            "city",
+            "Unknown Location",
+        )
+
+        roof_type = str(
+            stadium.get("roof_type", "unknown")
+        ).title()
+
+        stadium_column1, stadium_column2, stadium_column3 = (
+            st.columns(3)
+        )
+
+        stadium_column1.metric(
+            "Stadium",
+            stadium_name,
+        )
+
+        stadium_column2.metric(
+            "Location",
+            stadium_city,
+        )
+
+        stadium_column3.metric(
+            "Roof Type",
+            roof_type,
+        )
+
+        kickoff_column1, kickoff_column2 = st.columns(2)
+
+        kickoff_date = kickoff_column1.date_input(
+            "Kickoff Date",
+            key="weather_kickoff_date",
+        )
+
+        kickoff_time = kickoff_column2.time_input(
+            "Kickoff Time at Stadium",
+            key="weather_kickoff_time",
+        )
+
+        kickoff_datetime = datetime.combine(
+            kickoff_date,
+            kickoff_time,
+        )
+
+        st.write(
+            "**Selected kickoff:** "
+            f"{kickoff_datetime.strftime(
+                '%A, %B %d, %Y at %I:%M %p'
+            )}"
+        )
+
+        coordinates = get_team_weather_location(
+            selected_team
+        )
+
+        if coordinates is None:
+            st.warning(
+                "No weather coordinates are available for "
+                "this stadium."
+            )
+        else:
+            hours_until_kickoff = (
+                                          kickoff_datetime - datetime.now()
+                                  ).total_seconds() / 3600.0
+
+            if hours_until_kickoff < -24:
+                st.warning(
+                    "The selected kickoff is more than 24 hours "
+                    "in the past. The live forecast service does "
+                    "not provide historical game weather here."
+                )
+
+            elif hours_until_kickoff > 384:
+                days_until_kickoff = (
+                        hours_until_kickoff / 24.0
+                )
+
+                st.info(
+                    f"This kickoff is approximately "
+                    f"{days_until_kickoff:.1f} days away. "
+                    "An hourly forecast is not available until "
+                    "the game is within the 16-day forecast window."
+                )
+
+            else:
+                latitude, longitude = coordinates
+
+                with st.spinner(
+                        "Loading kickoff weather..."
+                ):
+                    weather_data = get_game_weather(
+                        latitude=latitude,
+                        longitude=longitude,
+                    )
+
+                if weather_data is None:
+                    st.error(
+                        "Weather data could not be loaded. "
+                        "Please try again later."
+                    )
+                else:
+                    forecast = find_nearest_forecast_hour(
+                        weather_data=weather_data,
+                        kickoff_time=kickoff_datetime,
+                    )
+
+                    if forecast is None:
+                        st.info(
+                            "No hourly forecast is available "
+                            "for the selected kickoff time."
+                        )
+                    else:
+                        weather_protected = (
+                            is_weather_protected(
+                                selected_team
+                            )
+                        )
+                        temperature_f = forecast["Temperature F"]
+                        wind_speed_mph = forecast["Wind Speed MPH"]
+                        wind_gust_mph = forecast["Wind Gust MPH"]
+
+                        precipitation_probability = forecast[
+                            "Precipitation Probability"
+                        ]
+
+                        weather_risk = classify_weather_risk(
+                            wind_speed_mph=wind_speed_mph,
+                            wind_gust_mph=wind_gust_mph,
+                            precipitation_probability=precipitation_probability,
+                            indoor_game=weather_protected,
+                        )
+
+                        st.divider()
+                        st.subheader(
+                            "Kickoff Weather Forecast"
+                        )
+
+                        forecast_column1, forecast_column2, forecast_column3 = (
+                            st.columns(3)
+                        )
+
+                        forecast_column4, forecast_column5, forecast_column6 = (
+                            st.columns(3)
+                        )
+
+                        forecast_column1.metric(
+                            "Temperature",
+                            (
+                                f"{forecast['Temperature F']:.0f} F"
+                            ),
+                        )
+
+                        forecast_column2.metric(
+                            "Wind Speed",
+                            (
+                                f"{forecast['Wind Speed MPH']:.1f} mph"
+                            ),
+                        )
+
+                        forecast_column3.metric(
+                            "Wind Gusts",
+                            (
+                                f"{forecast['Wind Gust MPH']:.1f} mph"
+                            ),
+                        )
+
+                        forecast_column4.metric(
+                            "Precipitation Chance",
+                            (
+                                f"{forecast[
+                                    'Precipitation Probability'
+                                ]:.0f}%"
+                            ),
+                        )
+
+                        forecast_column5.metric(
+                            "Roof Type",
+                            roof_type,
+                        )
+
+                        forecast_column6.metric(
+                            "Fantasy Weather Risk",
+                            weather_risk,
+                        )
+
+                        if weather_protected:
+                            st.success(
+                                "This venue is weather protected. "
+                                "Outdoor conditions should not "
+                                "materially affect fantasy decisions."
+                            )
+
+                        elif roof_type == "Retractable":
+                            st.info(
+                                "This stadium has a retractable roof. "
+                                "Weather risk is shown conservatively "
+                                "because the expected roof position "
+                                "is not yet known."
+                            )
+
+                        elif weather_risk == "HIGH":
+                            st.error(
+                                "High weather risk. Review quarterbacks, "
+                                "wide receivers, tight ends, and kickers "
+                                "before setting your lineup."
+                            )
+
+                        elif weather_risk == "MEDIUM":
+                            st.warning(
+                                "Moderate weather risk. Use the forecast "
+                                "as a tie-breaker between similarly "
+                                "rated players."
+                            )
+
+                        else:
+                            st.success(
+                                "No major weather concern is currently "
+                                "identified for this game."
+                            )
+
+                        st.caption(
+                            "Forecast hour nearest kickoff: "
+                            f"{forecast['Forecast Time']}"
+                        )

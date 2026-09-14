@@ -181,6 +181,17 @@ def build_weekly_lineup_rows(
             games_included=games_included,
         )
 
+        confidence_label, confidence_score, confidence_reason = (
+            calculate_advisor_confidence(
+                projected_points=projected_points,
+                three_week_average=three_week_average,
+                games_included=games_included,
+                sleeper_rank=sleeper_rank,
+                injury_status=injury_status,
+                on_bye=on_bye,
+            )
+        )
+
 
 
         lineup_rows.append(
@@ -213,6 +224,9 @@ def build_weekly_lineup_rows(
                     else "N/A"
                 ),
                 "Lineup Value": lineup_value,
+                "Advisor Confidence": confidence_label,
+                "Confidence Score": confidence_score,
+                "Confidence Reason": confidence_reason,
                 "Week Points": round(points, 2),
                 "Player ID": player_id,
                 "Last Game Points": round(
@@ -516,6 +530,14 @@ def build_lineup_change_rows(
                     "",
                 ),
                 "Bench Value": bench_value,
+                "Start Confidence": start_player.get(
+                    "Advisor Confidence",
+                    "LOW",
+                ),
+                "Bench Confidence": bench_player.get(
+                    "Advisor Confidence",
+                    "LOW",
+                ),
                 "Estimated Improvement": round(
                     start_value - bench_value,
                     1,
@@ -742,3 +764,134 @@ def build_recent_performance_lookup(
         }
 
     return performance_lookup
+
+def calculate_advisor_confidence(
+    projected_points: float,
+    three_week_average: float,
+    games_included: int,
+    sleeper_rank: int | float | None,
+    injury_status: str,
+    on_bye: bool,
+) -> tuple[str, int, str]:
+    """Estimate confidence in a weekly lineup recommendation."""
+
+    confidence_score = 0
+    reasons = []
+
+    try:
+        projection_value = max(
+            float(projected_points),
+            0.0,
+        )
+    except (TypeError, ValueError):
+        projection_value = 0.0
+
+    try:
+        recent_average = max(
+            float(three_week_average),
+            0.0,
+        )
+    except (TypeError, ValueError):
+        recent_average = 0.0
+
+    try:
+        completed_games = max(
+            int(games_included),
+            0,
+        )
+    except (TypeError, ValueError):
+        completed_games = 0
+
+    try:
+        numeric_rank = float(sleeper_rank)
+        has_valid_rank = numeric_rank > 0
+    except (TypeError, ValueError):
+        has_valid_rank = False
+
+    normalized_injury = str(
+        injury_status or ""
+    ).upper()
+
+    if projection_value > 0:
+        confidence_score += 35
+        reasons.append("weekly projection available")
+    else:
+        reasons.append("no weekly projection")
+
+    if completed_games >= 3:
+        confidence_score += 30
+        reasons.append("three recent games available")
+    elif completed_games == 2:
+        confidence_score += 20
+        reasons.append("two recent games available")
+    elif completed_games == 1:
+        confidence_score += 10
+        reasons.append("one recent game available")
+    else:
+        reasons.append("no recent-game history")
+
+    if has_valid_rank:
+        confidence_score += 20
+        reasons.append("Sleeper rank available")
+    else:
+        reasons.append("Sleeper rank unavailable")
+
+    if projection_value > 0 and recent_average > 0:
+        difference = abs(
+            projection_value - recent_average
+        )
+
+        if difference <= 3:
+            confidence_score += 15
+            reasons.append(
+                "projection agrees with recent production"
+            )
+        elif difference <= 7:
+            confidence_score += 8
+            reasons.append(
+                "projection is reasonably close to recent production"
+            )
+        else:
+            confidence_score -= 5
+            reasons.append(
+                "projection and recent production disagree"
+            )
+
+    if normalized_injury in {
+        "QUESTIONABLE",
+        "Q",
+        "DOUBTFUL",
+        "D",
+    }:
+        confidence_score -= 15
+        reasons.append("injury designation adds uncertainty")
+
+    elif normalized_injury in {"OUT", "IR"}:
+        confidence_score = 0
+        reasons.append("player is unavailable")
+
+    if on_bye:
+        confidence_score = 0
+        reasons.append("player is on bye")
+
+    confidence_score = max(
+        min(confidence_score, 100),
+        0,
+    )
+
+    if confidence_score >= 75:
+        confidence_label = "HIGH"
+    elif confidence_score >= 45:
+        confidence_label = "MEDIUM"
+    else:
+        confidence_label = "LOW"
+
+    confidence_reason = ", ".join(
+        dict.fromkeys(reasons)
+    )
+
+    return (
+        confidence_label,
+        confidence_score,
+        confidence_reason,
+    )

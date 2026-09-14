@@ -183,3 +183,75 @@ def get_weekly_stats(
         url,
         timeout=30,
     )
+
+@st.cache_data(ttl=1800)
+def get_game_weather(
+    latitude: float,
+    longitude: float,
+) -> dict | None:
+    """Retrieve hourly weather for a stadium location."""
+
+    url = "https://api.open-meteo.com/v1/forecast"
+
+    parameters = {
+        "latitude": latitude,
+        "longitude": longitude,
+        "hourly": (
+            "temperature_2m,"
+            "precipitation_probability,"
+            "precipitation,"
+            "weather_code,"
+            "wind_speed_10m,"
+            "wind_gusts_10m"
+        ),
+        "temperature_unit": "fahrenheit",
+        "wind_speed_unit": "mph",
+        "precipitation_unit": "inch",
+        "timezone": "auto",
+        "forecast_days": 16,
+    }
+
+    try:
+        response = requests.get(
+            url,
+            params=parameters,
+            timeout=30,
+        )
+
+        response.raise_for_status()
+        return response.json()
+
+    except requests.RequestException:
+        return None
+
+@st.cache_data(ttl=3600)
+def get_nfl_schedule(
+    season: str,
+    season_type: str = "regular",
+) -> list[dict] | None:
+    """Retrieve the real NFL schedule from Sleeper."""
+
+    normalized_season = str(season).strip()
+    normalized_type = str(
+        season_type
+    ).lower().strip()
+
+    if not normalized_season.isdigit():
+        return None
+
+    if normalized_type not in {
+        "regular",
+        "pre",
+        "post",
+    }:
+        normalized_type = "regular"
+
+    url = (
+        f"https://api.sleeper.com/schedule/nfl/"
+        f"{normalized_type}/{normalized_season}"
+    )
+
+    return _request_json(
+        url,
+        timeout=30,
+    )

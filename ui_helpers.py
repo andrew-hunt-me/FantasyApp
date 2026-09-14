@@ -844,12 +844,26 @@ def display_start_sit_advisor(
         "Sleeper Rank",
         "Projected Points",
         "Lineup Value",
+        "Advisor Confidence",
+        "Confidence Score",
+        "Confidence Reason",
         "Projected Points",
         "Last Game Points",
         "Three Week Average",
         "Recent Trend",
     ]
+    low_confidence_changes = [
+        change
+        for change in lineup_changes
+        if change.get("Start Confidence") == "LOW"
+    ]
 
+    if low_confidence_changes:
+        st.warning(
+            "One or more suggested changes have low confidence. "
+            "Review injury news and projections before changing "
+            "your Sleeper lineup."
+        )
     recommended_rows = [
         {
             column: player.get(column, "")
