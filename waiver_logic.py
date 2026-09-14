@@ -3,7 +3,7 @@
 from typing import Any
 
 from config import ROSTER_LIMITS
-from draft_logic import normalize_position
+from player_utils import normalize_position
 from schedule_data import get_bye_week
 
 

@@ -255,3 +255,52 @@ def get_nfl_schedule(
         url,
         timeout=30,
     )
+
+@st.cache_data(ttl=3600)
+def get_nfl_week_schedule(
+    season: str,
+    week: int,
+) -> list[dict] | None:
+    """Retrieve one NFL week's schedule from ESPN."""
+
+    try:
+        season_value = int(season)
+        week_value = int(week)
+    except (TypeError, ValueError):
+        return None
+
+    if week_value < 1 or week_value > 18:
+        return None
+
+    url = (
+        "https://site.api.espn.com/apis/site/v2/"
+        "sports/football/nfl/scoreboard"
+    )
+
+    parameters = {
+        "dates": season_value,
+        "seasontype": 2,
+        "week": week_value,
+        "limit": 100,
+    }
+
+    try:
+        response = requests.get(
+            url,
+            params=parameters,
+            timeout=30,
+        )
+
+        response.raise_for_status()
+        response_data = response.json()
+
+        return response_data.get(
+            "events",
+            [],
+        )
+
+    except (
+        requests.RequestException,
+        ValueError,
+    ):
+        return None

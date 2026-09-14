@@ -7,10 +7,8 @@ from config import (
     DEFAULT_REPLACEMENT_LEVELS,
     ROSTER_LIMITS,
 )
-from draft_logic import (
-    is_position_at_limit,
-    normalize_position,
-)
+from draft_logic import is_position_at_limit
+from player_utils import normalize_position
 from schedule_data import get_bye_week
 
 def calculate_position_need_score(
