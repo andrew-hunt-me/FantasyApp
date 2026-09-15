@@ -844,6 +844,8 @@ def display_start_sit_advisor(
         "Kickoff Houston",
         "Game Location",
         "Roof Type",
+        "Weather Risk",
+        "Weather Adjustment",
         "Bye Week",
         "Injury Status",
         "Sleeper Rank",
@@ -886,6 +888,30 @@ def display_start_sit_advisor(
             700,
         ),
     )
+
+    weather_concerns = [
+        player
+        for player in recommended_starters
+        if player.get("Weather Risk")
+           in {"MEDIUM", "HIGH"}
+           or float(
+            player.get(
+                "Weather Adjustment",
+                0.0,
+            )
+        ) <= -3.0
+    ]
+
+    if weather_concerns:
+        with st.expander(
+                "Weather Concerns",
+                expanded=True,
+        ):
+            for player in weather_concerns:
+                st.write(
+                    f"**{player.get('Player Name', '')}:** "
+                    f"{player.get('Weather Reason', '')}"
+                )
 
     st.subheader("Suggested Changes")
 

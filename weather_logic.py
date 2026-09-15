@@ -475,14 +475,20 @@ def build_team_game_context(
         False,
     )
 
-    roof_type = stadium_metadata.get(
-        "roof_type",
-        "",
-    )
+    roof_type = str(
+        stadium_metadata.get("roof_type") or ""
+    ).lower().strip()
 
-    if not roof_type and espn_indoor:
-        roof_type = "indoor"
-    elif not roof_type:
+    if espn_indoor:
+        roof_type = "dome"
+    elif roof_type in {"fixed", "fixed roof", "indoor"}:
+        roof_type = "dome"
+    elif roof_type not in {
+        "dome",
+        "outdoor",
+        "retractable",
+        "canopy",
+    }:
         roof_type = "unknown"
 
     return {
@@ -502,7 +508,7 @@ def build_team_game_context(
             or stadium_metadata.get("city")
             or ""
         ),
-        "Roof Type": str(roof_type).title(),
+        "Roof Type": roof_type.title(),
         "Indoor": bool(
             espn_indoor
             or roof_type == "dome"
@@ -660,3 +666,148 @@ def find_team_espn_game(
             return normalized_event
 
     return None
+def build_game_weather_context(
+    game_context: dict,
+    weather_data: dict | None,
+) -> dict:
+    """Build kickoff weather context for one NFL game."""
+
+    empty_context = {
+        "Weather Available": False,
+        "Weather Risk": "N/A",
+        "Temperature F": None,
+        "Wind Speed MPH": None,
+        "Wind Gust MPH": None,
+        "Precipitation Probability": None,
+        "Forecast Time": "",
+        "Weather Protected": False,
+        "Weather Summary": "Weather forecast unavailable",
+    }
+
+    if not game_context:
+        return empty_context
+
+    kickoff_utc = game_context.get("Kickoff UTC")
+
+    if kickoff_utc is None:
+        return empty_context
+
+    indoor_game = bool(
+        game_context.get("Indoor", False)
+    )
+
+    roof_type = str(
+        game_context.get("Roof Type", "")
+    ).lower()
+
+    weather_protected = (
+        indoor_game
+        or roof_type in {
+            "dome",
+            "fixed",
+            "fixed dome",
+            "indoor",
+        }
+    )
+
+    if weather_protected:
+        return {
+            **empty_context,
+            "Weather Available": True,
+            "Weather Risk": "NONE",
+            "Weather Protected": True,
+            "Weather Summary": (
+                "Indoor or weather-protected game"
+            ),
+        }
+
+    if not weather_data:
+        return empty_context
+
+    stadium_team = game_context.get(
+        "Stadium Team",
+        "",
+    )
+
+    stadium = get_stadium(stadium_team) or {}
+
+    stadium_timezone_name = stadium.get(
+        "timezone",
+        "America/Chicago",
+    )
+
+    stadium_kickoff = kickoff_utc.astimezone(
+        ZoneInfo(stadium_timezone_name)
+    )
+
+    forecast = find_nearest_forecast_hour(
+        weather_data=weather_data,
+        kickoff_time=stadium_kickoff.replace(
+            tzinfo=None
+        ),
+    )
+
+    if forecast is None:
+        return empty_context
+
+    temperature_f = float(
+        forecast.get("Temperature F", 0.0)
+    )
+
+    wind_speed_mph = float(
+        forecast.get("Wind Speed MPH", 0.0)
+    )
+
+    wind_gust_mph = float(
+        forecast.get("Wind Gust MPH", 0.0)
+    )
+
+    precipitation_probability = float(
+        forecast.get(
+            "Precipitation Probability",
+            0.0,
+        )
+    )
+
+    weather_risk = classify_weather_risk(
+        wind_speed_mph=wind_speed_mph,
+        wind_gust_mph=wind_gust_mph,
+        precipitation_probability=(
+            precipitation_probability
+        ),
+        indoor_game=False,
+    )
+
+    weather_summary = (
+        f"{temperature_f:.0f} F, "
+        f"wind {wind_speed_mph:.0f} mph, "
+        f"gusts {wind_gust_mph:.0f} mph, "
+        f"{precipitation_probability:.0f}% precipitation"
+    )
+
+    return {
+        "Weather Available": True,
+        "Weather Risk": weather_risk,
+        "Temperature F": round(
+            temperature_f,
+            1,
+        ),
+        "Wind Speed MPH": round(
+            wind_speed_mph,
+            1,
+        ),
+        "Wind Gust MPH": round(
+            wind_gust_mph,
+            1,
+        ),
+        "Precipitation Probability": round(
+            precipitation_probability,
+            1,
+        ),
+        "Forecast Time": forecast.get(
+            "Forecast Time",
+            "",
+        ),
+        "Weather Protected": False,
+        "Weather Summary": weather_summary,
+    }

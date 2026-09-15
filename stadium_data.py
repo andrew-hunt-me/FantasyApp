@@ -106,6 +106,146 @@ NFL_STADIUMS = {
         "longitude": -121.9700,
         "roof_type": "outdoor",
     },
+    "CIN": {
+        "stadium": "Paycor Stadium",
+        "city": "Cincinnati, OH",
+        "latitude": 39.0950,
+        "longitude": -84.5160,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
+
+    "LAC": {
+        "stadium": "SoFi Stadium",
+        "city": "Inglewood, CA",
+        "latitude": 33.9536,
+        "longitude": -118.3396,
+        "roof_type": "canopy",
+        "timezone": "America/Los_Angeles",
+    },
+
+    "NYG": {
+        "stadium": "MetLife Stadium",
+        "city": "East Rutherford, NJ",
+        "latitude": 40.8135,
+        "longitude": -74.0744,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+},
+    "LAR": {
+        "stadium": "SoFi Stadium",
+        "city": "Inglewood, CA",
+        "latitude": 33.9536,
+        "longitude": -118.3396,
+        "roof_type": "canopy",
+        "timezone": "America/Los_Angeles",
+    },
+
+    "NYJ": {
+        "stadium": "MetLife Stadium",
+        "city": "East Rutherford, NJ",
+        "latitude": 40.8135,
+        "longitude": -74.0744,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
+
+    "CHI": {
+        "stadium": "Soldier Field",
+        "city": "Chicago, IL",
+        "latitude": 41.8624,
+        "longitude": -87.6173,
+        "roof_type": "outdoor",
+        "timezone": "America/Chicago",
+    },
+
+    "DEN": {
+        "stadium": "Empower Field at Mile High",
+        "city": "Denver, CO",
+        "latitude": 39.7441,
+        "longitude": -105.0208,
+        "roof_type": "outdoor",
+        "timezone": "America/Denver",
+    },
+
+    "NE": {
+        "stadium": "Gillette Stadium",
+        "city": "Foxborough, MA",
+        "latitude": 42.0909,
+        "longitude": -71.2647,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
+
+    "TEN": {
+        "stadium": "Nissan Stadium",
+        "city": "Nashville, TN",
+        "latitude": 36.1665,
+        "longitude": -86.7714,
+        "roof_type": "outdoor",
+        "timezone": "America/Chicago",
+    },
+    "JAX": {
+        "stadium": "EverBank Stadium",
+        "city": "Jacksonville, FL",
+        "latitude": 30.3239,
+        "longitude": -81.6375,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
+
+    "PIT": {
+        "stadium": "Acrisure Stadium",
+        "city": "Pittsburgh, PA",
+        "latitude": 40.4467,
+        "longitude": -80.0158,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
+
+    "TB": {
+        "stadium": "Raymond James Stadium",
+        "city": "Tampa, FL",
+        "latitude": 27.9760,
+        "longitude": -82.5037,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
+
+    "WAS": {
+        "stadium": "Northwest Stadium",
+        "city": "Landover, MD",
+        "latitude": 38.9078,
+        "longitude": -76.8645,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
+
+    "CLE": {
+        "stadium": "Huntington Bank Field",
+        "city": "Cleveland, OH",
+        "latitude": 41.5061,
+        "longitude": -81.6994,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
+
+    "GB": {
+        "stadium": "Lambeau Field",
+        "city": "Green Bay, WI",
+        "latitude": 44.5013,
+        "longitude": -88.0623,
+        "roof_type": "outdoor",
+        "timezone": "America/Chicago",
+    },
+    "CAR": {
+        "stadium": "Bank of America Stadium",
+        "city": "Charlotte, NC",
+        "latitude": 35.2251,
+        "longitude": -80.8529,
+        "roof_type": "outdoor",
+        "timezone": "America/New_York",
+    },
 }
 def get_stadium(team: str) -> dict | None:
     """Return stadium information for a team."""

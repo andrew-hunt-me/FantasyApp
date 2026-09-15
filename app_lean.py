@@ -51,6 +51,7 @@ from weather_logic import (
     get_team_weather_location,
     parse_sleeper_kickoff,
     build_team_game_context,
+    build_game_weather_context,
 )
 
 
@@ -353,6 +354,23 @@ with lineup_tab:
 
             team_game_contexts = {}
 
+            # Identify each unique NFL team represented on the roster.
+            roster_teams = {
+                str(player.get("NFL Team") or "")
+                for player in lineup_rows
+                if player.get("NFL Team")
+            }
+
+            # Build schedule and venue context before requesting weather.
+            for nfl_team in roster_teams:
+                team_game_contexts[nfl_team] = (
+                    build_team_game_context(
+                        team=nfl_team,
+                        schedule_events=weekly_schedule_events,
+                    )
+                )
+
+            # Display schedule matching diagnostics only after contexts exist.
             with st.expander("Schedule Status"):
                 st.write(
                     f"Week {int(selected_week)} games loaded: "
@@ -375,19 +393,125 @@ with lineup_tab:
                         "All roster teams were matched to scheduled games."
                     )
 
-            roster_teams = {
-                str(player.get("NFL Team") or "")
-                for player in lineup_rows
-                if player.get("NFL Team")
-            }
+            # Build one weather context per unique home venue.
+            game_weather_contexts = {}
 
-            for nfl_team in roster_teams:
-                team_game_contexts[nfl_team] = (
-                    build_team_game_context(
-                        team=nfl_team,
-                        schedule_events=weekly_schedule_events,
+            current_utc = datetime.now(
+                ZoneInfo("UTC")
+            )
+
+            for game_context in team_game_contexts.values():
+                scheduled_game = game_context.get(
+                    "Scheduled Game"
+                )
+
+                if not scheduled_game:
+                    continue
+
+                home_team = game_context.get(
+                    "Home Team",
+                    "",
+                )
+
+                if not home_team:
+                    continue
+
+                # Several roster players may be in the same NFL game.
+                if home_team in game_weather_contexts:
+                    continue
+
+                kickoff_utc = game_context.get(
+                    "Kickoff UTC"
+                )
+
+                if kickoff_utc is None:
+                    game_weather_contexts[home_team] = (
+                        build_game_weather_context(
+                            game_context=game_context,
+                            weather_data=None,
+                        )
+                    )
+                    continue
+
+                hours_until_kickoff = (
+                                              kickoff_utc - current_utc
+                                      ).total_seconds() / 3600.0
+
+                indoor_game = bool(
+                    game_context.get("Indoor", False)
+                )
+
+                weather_data = None
+
+                if (
+                        not indoor_game
+                        and -24 <= hours_until_kickoff <= 384
+                ):
+                    coordinates = get_team_weather_location(
+                        home_team
+                    )
+
+                    if coordinates is not None:
+                        latitude, longitude = coordinates
+
+                        weather_data = get_game_weather(
+                            latitude=latitude,
+                            longitude=longitude,
+                        )
+
+                game_weather_contexts[home_team] = (
+                    build_game_weather_context(
+                        game_context=game_context,
+                        weather_data=weather_data,
                     )
                 )
+            with st.expander("Schedule Status"):
+                st.write(
+                    f"Week {int(selected_week)} games loaded: "
+                    f"{len(weekly_schedule_events)}"
+                )
+
+                unmatched_teams = sorted(
+                    team
+                    for team, context in team_game_contexts.items()
+                    if not context.get("Scheduled Game")
+                )
+
+                if unmatched_teams:
+                    st.warning(
+                        "No schedule match found for: "
+                        + ", ".join(unmatched_teams)
+                    )
+                else:
+                    st.success(
+                        "All roster teams were matched to scheduled games."
+                    )
+
+            with st.expander("Venue Diagnostics"):
+                unknown_roof_teams = sorted(
+                    {
+                        context.get("Home Team", "")
+                        for context in team_game_contexts.values()
+                        if context.get("Scheduled Game")
+                           and context.get("Roof Type") == "Unknown"
+                    }
+                )
+
+                unknown_roof_teams = [
+                    team
+                    for team in unknown_roof_teams
+                    if team
+                ]
+
+                if unknown_roof_teams:
+                    st.warning(
+                        "Missing roof metadata for home teams: "
+                        + ", ".join(unknown_roof_teams)
+                    )
+                else:
+                    st.success(
+                        "All scheduled games have roof metadata."
+                    )
 
             for player in lineup_rows:
                 nfl_team = str(
@@ -434,6 +558,130 @@ with lineup_tab:
                     "Unknown",
                 )
 
+                home_team = game_context.get(
+                    "Home Team",
+                    "",
+                )
+
+                weather_context = game_weather_contexts.get(
+                    home_team,
+                    {},
+                )
+
+                player["Weather Risk"] = weather_context.get(
+                    "Weather Risk",
+                    "N/A",
+                )
+
+                player["Weather Summary"] = weather_context.get(
+                    "Weather Summary",
+                    "Weather forecast unavailable",
+                )
+
+                player["Temperature F"] = weather_context.get(
+                    "Temperature F",
+                )
+
+                player["Wind Speed MPH"] = weather_context.get(
+                    "Wind Speed MPH",
+                )
+
+                player["Wind Gust MPH"] = weather_context.get(
+                    "Wind Gust MPH",
+                )
+
+                player["Precipitation Probability"] = (
+                    weather_context.get(
+                        "Precipitation Probability"
+                    )
+                )
+                weather_available = weather_context.get(
+                    "Weather Available",
+                    False,
+                )
+
+                weather_protected = weather_context.get(
+                    "Weather Protected",
+                    False,
+                )
+
+                if weather_available:
+                    temperature_f = weather_context.get(
+                        "Temperature F"
+                    )
+
+                    wind_speed_mph = weather_context.get(
+                        "Wind Speed MPH"
+                    )
+
+                    wind_gust_mph = weather_context.get(
+                        "Wind Gust MPH"
+                    )
+
+                    precipitation_probability = (
+                        weather_context.get(
+                            "Precipitation Probability"
+                        )
+                    )
+
+                    weather_adjustment, weather_reason = (
+                        calculate_weather_adjustment(
+                            position=player.get(
+                                "Position",
+                                "",
+                            ),
+                            temperature_f=(
+                                temperature_f
+                                if temperature_f is not None
+                                else 70.0
+                            ),
+                            precipitation_probability=(
+                                precipitation_probability
+                                if precipitation_probability
+                                   is not None
+                                else 0.0
+                            ),
+                            wind_speed_mph=(
+                                wind_speed_mph
+                                if wind_speed_mph is not None
+                                else 0.0
+                            ),
+                            wind_gust_mph=(
+                                wind_gust_mph
+                                if wind_gust_mph is not None
+                                else 0.0
+                            ),
+                            indoor_game=weather_protected,
+                        )
+                    )
+                else:
+                    weather_adjustment = 0.0
+                    weather_reason = weather_context.get(
+                    "Weather Unavailable Reason",
+                    "Weather forecast unavailable",
+                    )
+
+                player["Base Lineup Value"] = player.get(
+                    "Lineup Value",
+                    0.0,
+                )
+
+                player["Weather Adjustment"] = (
+                    weather_adjustment
+                )
+
+                player["Weather Reason"] = weather_reason
+
+                player["Lineup Value"] = round(
+                    float(
+                        player.get(
+                            "Base Lineup Value",
+                            0.0,
+                        )
+                    )
+                    + weather_adjustment,
+                    1,
+                )
             if not lineup_rows:
                 st.info(
                     "No lineup players were returned for this week."
@@ -558,6 +806,8 @@ with lineup_tab:
                         len(projection_lookup),
                     )
 
+
+
 with waiver_tab:
     st.subheader("Waiver Watch")
 
@@ -681,6 +931,262 @@ with waiver_tab:
             if position in position_counts:
                 position_counts[position] += 1
 
+        waiver_projection_lookup = {}
+
+        with st.spinner(
+                "Loading weekly waiver projections..."
+        ):
+            waiver_projections = get_weekly_projections(
+                season=selected_season,
+                week=int(selected_week),
+            )
+
+        if waiver_projections:
+            waiver_projection_lookup = build_projection_lookup(
+                projection_rows=waiver_projections,
+                scoring_settings=scoring_settings,
+            )
+
+        waiver_weekly_points_lookups = []
+
+        first_waiver_recent_week = max(
+            1,
+            int(selected_week) - 3,
+        )
+
+        with st.spinner(
+                "Loading recent waiver performance..."
+        ):
+            for previous_week in range(
+                    first_waiver_recent_week,
+                    int(selected_week),
+            ):
+                previous_week_stats = get_weekly_stats(
+                    season=selected_season,
+                    week=previous_week,
+                )
+
+                previous_week_points = (
+                    build_weekly_points_lookup(
+                        stats_rows=previous_week_stats,
+                        scoring_settings=scoring_settings,
+                    )
+                )
+
+                waiver_weekly_points_lookups.append(
+                    (
+                        previous_week,
+                        previous_week_points,
+                    )
+                )
+
+        waiver_performance_lookup = (
+            build_recent_performance_lookup(
+                waiver_weekly_points_lookups
+            )
+        )
+
+        waiver_projection_lookup = {}
+
+        with st.spinner(
+                "Loading weekly waiver projections..."
+        ):
+            waiver_projections = get_weekly_projections(
+                season=selected_season,
+                week=int(selected_week),
+            )
+
+        if waiver_projections:
+            waiver_projection_lookup = (
+                build_projection_lookup(
+                    projection_rows=waiver_projections,
+                    scoring_settings=scoring_settings,
+                )
+            )
+
+        waiver_weekly_points_lookups = []
+
+        first_waiver_recent_week = max(
+            1,
+            int(selected_week) - 3,
+        )
+
+        with st.spinner(
+                "Loading recent waiver performance..."
+        ):
+            for previous_week in range(
+                    first_waiver_recent_week,
+                    int(selected_week),
+            ):
+                previous_week_stats = get_weekly_stats(
+                    season=selected_season,
+                    week=previous_week,
+                )
+
+                previous_week_points = (
+                    build_weekly_points_lookup(
+                        stats_rows=previous_week_stats,
+                        scoring_settings=scoring_settings,
+                    )
+                )
+
+                waiver_weekly_points_lookups.append(
+                    (
+                        previous_week,
+                        previous_week_points,
+                    )
+                )
+
+        waiver_performance_lookup = (
+            build_recent_performance_lookup(
+                waiver_weekly_points_lookups
+            )
+        )
+
+        waiver_candidate_teams = set()
+
+        for trend_entry in trending_players or []:
+            player_id = str(
+                trend_entry.get("player_id") or ""
+            )
+
+            if not player_id:
+                continue
+
+            player_data = nfl_players.get(
+                player_id,
+                {},
+            )
+
+            if not isinstance(player_data, dict):
+                continue
+
+            nfl_team = str(
+                player_data.get("team") or ""
+            ).upper().strip()
+
+            if nfl_team:
+                waiver_candidate_teams.add(
+                    nfl_team
+                )
+
+        with st.spinner(
+                f"Loading Week {int(selected_week)} waiver schedule..."
+        ):
+            waiver_schedule_events = (
+                get_nfl_week_schedule(
+                    season=selected_season,
+                    week=int(selected_week),
+                )
+            )
+
+        if waiver_schedule_events is None:
+            waiver_schedule_events = []
+
+            st.warning(
+                "NFL schedule data could not be loaded. "
+                "Waiver rankings will continue without "
+                "game and weather context."
+            )
+
+        waiver_team_contexts = {}
+
+        for nfl_team in waiver_candidate_teams:
+            waiver_team_contexts[nfl_team] = (
+                build_team_game_context(
+                    team=nfl_team,
+                    schedule_events=waiver_schedule_events,
+                )
+            )
+
+        waiver_game_weather_contexts = {}
+
+        current_utc = datetime.now(
+            ZoneInfo("UTC")
+        )
+
+        for game_context in waiver_team_contexts.values():
+            scheduled_game = game_context.get(
+                "Scheduled Game"
+            )
+
+            if not scheduled_game:
+                continue
+
+            home_team = game_context.get(
+                "Home Team",
+                "",
+            )
+
+            if not home_team:
+                continue
+
+            if home_team in waiver_game_weather_contexts:
+                continue
+
+            kickoff_utc = game_context.get(
+                "Kickoff UTC"
+            )
+
+            weather_data = None
+
+            if kickoff_utc is not None:
+                hours_until_kickoff = (
+                                              kickoff_utc - current_utc
+                                      ).total_seconds() / 3600.0
+
+                indoor_game = bool(
+                    game_context.get(
+                        "Indoor",
+                        False,
+                    )
+                )
+
+                if (
+                        not indoor_game
+                        and -24 <= hours_until_kickoff <= 384
+                ):
+                    coordinates = (
+                        get_team_weather_location(
+                            home_team
+                        )
+                    )
+
+                    if coordinates is not None:
+                        latitude, longitude = coordinates
+
+                        weather_data = get_game_weather(
+                            latitude=latitude,
+                            longitude=longitude,
+                        )
+
+            waiver_game_weather_contexts[home_team] = (
+                build_game_weather_context(
+                    game_context=game_context,
+                    weather_data=weather_data,
+                )
+            )
+        waiver_player_game_contexts = {}
+
+        for nfl_team, game_context in (
+                waiver_team_contexts.items()
+        ):
+            home_team = game_context.get(
+                "Home Team",
+                "",
+            )
+
+            weather_context = (
+                waiver_game_weather_contexts.get(
+                    home_team,
+                    {},
+                )
+            )
+
+            waiver_player_game_contexts[nfl_team] = {
+                **game_context,
+                **weather_context,
+            }
         waiver_rows = build_waiver_watch_rows(
             trending_players=trending_players,
             nfl_players=nfl_players,
@@ -688,6 +1194,11 @@ with waiver_tab:
             position_counts=position_counts,
             sleeper_rank_scores=sleeper_rank_scores,
             trend_type=trend_type,
+            projection_lookup=waiver_projection_lookup,
+            performance_lookup=waiver_performance_lookup,
+            player_game_contexts=(
+                waiver_player_game_contexts
+            ),
         )
 
         if waiver_positions:
@@ -726,6 +1237,25 @@ with waiver_tab:
         else:
             st.subheader("Top Waiver Options")
 
+            priority_adds = [
+                player
+                for player in waiver_rows
+                if player.get("Waiver Tier")
+                   in {"TIER 1", "TIER 2"}
+            ]
+
+            if priority_adds:
+                st.success(
+                    f"{len(priority_adds)} priority or strong "
+                    f"waiver option(s) found."
+                )
+            else:
+                st.info(
+                    "No high-priority waiver additions were found. "
+                    "The current options are primarily depth or "
+                    "watch-list candidates."
+                )
+
             for waiver_player in waiver_rows[:5]:
                 with st.container(border=True):
                     player_name = waiver_player.get(
@@ -752,9 +1282,21 @@ with waiver_tab:
                         f"### #{waiver_rank} {player_name}"
                     )
 
+                    waiver_tier = waiver_player.get(
+                        "Waiver Tier",
+                        "TIER 5",
+                    )
+
+                    waiver_label = waiver_player.get(
+                        "Waiver Label",
+                        "Watch List",
+                    )
+
                     st.caption(
+                        f"{waiver_tier} | {waiver_label} | "
                         f"{position} | {nfl_team}"
                     )
+
 
                     card_column1, card_column2 = st.columns(2)
 
@@ -774,6 +1316,17 @@ with waiver_tab:
                         ),
                     )
 
+                    waiver_reason = waiver_player.get(
+                        "Waiver Reason",
+                        "",
+                    )
+
+                    if waiver_reason:
+                        st.write(
+                            f"**Why consider this player:** "
+                            f"{waiver_reason}"
+                        )
+
                     card_column1.write(
                         "**Trend Count:** "
                         f"{waiver_player.get('Trend Count', 0)}"
@@ -783,7 +1336,61 @@ with waiver_tab:
                         "**Bye Week:** "
                         f"{waiver_player.get('Bye Week', 'N/A')}"
                     )
+                    card_column1.write(
+                        "**Projected Points:** "
+                        f"{float(
+                            waiver_player.get(
+                                'Projected Points',
+                                0.0,
+                            )
+                        ):.1f}"
+                    )
 
+                    card_column2.write(
+                        "**3-Week Average:** "
+                        f"{float(
+                            waiver_player.get(
+                                'Three Week Average',
+                                0.0,
+                            )
+                        ):.1f}"
+                    )
+
+                    weather_risk = waiver_player.get(
+                        "Weather Risk",
+                        "N/A",
+                    )
+
+                    weather_adjustment = float(
+                        waiver_player.get(
+                            "Weather Adjustment",
+                            0.0,
+                        )
+                    )
+
+                    if (
+                            weather_risk in {"MEDIUM", "HIGH"}
+                            or weather_adjustment != 0.0
+                    ):
+                        st.write(
+                            f"**Weather:** {weather_risk} "
+                            f"({weather_adjustment:+.1f})"
+                        )
+
+                        st.caption(
+                            waiver_player.get(
+                                "Weather Reason",
+                                "",
+                            )
+                        )
+                    recent_trend = waiver_player.get(
+                        "Recent Trend",
+                        "No trend",
+                    )
+
+                    st.caption(
+                        f"Recent trend: {recent_trend}"
+                    )
                     injury_status = waiver_player.get(
                         "Injury Status",
                         "",
@@ -800,23 +1407,22 @@ with waiver_tab:
             ):
                 waiver_display_columns = [
                     "Waiver Rank",
+                    "Waiver Tier",
+                    "Waiver Label",
                     "Player Name",
                     "Position",
                     "NFL Team",
-                    "Bye Week",
-                    "Trend Type",
-                    "Trend Count",
-                    "Sleeper Rank",
-                    "Sleeper Rank Score",
-                    "Trend Score",
-                    "Player Quality Score",
-                    "Roster Need Bonus",
-                    "Injury Penalty",
-                    "Trend Adjustment",
+                    "Opponent",
+                    "Kickoff Houston",
+                    "Projected Points",
+                    "Three Week Average",
+                    "Recent Trend",
+                    "Weather Risk",
+                    "Weather Adjustment",
                     "Waiver Score",
                     "Suggested FAAB",
                     "Injury Status",
-                    "Player ID",
+                    "Waiver Reason",
                 ]
 
                 waiver_display_rows = [
